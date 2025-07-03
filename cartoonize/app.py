@@ -43,6 +43,16 @@ app.config['OPTS'] = opts
 ## Init Cartoonizer and load its weights 
 wb_cartoonizer = WB_Cartoonize(os.path.abspath("white_box_cartoonizer/saved_models/"), opts['gpu'])
 
+def resize_image(image, max_width=512, max_height=512):
+    height, width = image.shape[:2]
+    if width > max_width or height > max_height:
+        scale = min(max_width / width, max_height / height)
+        new_width = int(width * scale)
+        new_height = int(height * scale)
+        image = cv2.resize(image, (new_width, new_height))
+    return image
+
+
 def convert_bytes_to_image(img_bytes):
     """Convert bytes to numpy array
 
@@ -77,12 +87,20 @@ def cartoonize():
                 image = convert_bytes_to_image(img)
 
                 img_name = str(uuid.uuid4())
-                
+
+                uploaded_img_name = os.path.join(app.config['CARTOONIZED_FOLDER'], img_name + "_original.jpg")
+                cv2.imwrite(uploaded_img_name, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+
+                print("cartoonizing image...")
+
+                image = resize_image(image)
                 cartoon_image = wb_cartoonizer.infer(image)
-                
+
+                print("cartoonizing image done!")
+
                 cartoonized_img_name = os.path.join(app.config['CARTOONIZED_FOLDER'], img_name + ".jpg")
                 cv2.imwrite(cartoonized_img_name, cv2.cvtColor(cartoon_image, cv2.COLOR_RGB2BGR))
-                
+
                 if not opts["run_local"]:
                     # Upload to bucket
                     output_uri = upload_blob("cartoonized_images", cartoonized_img_name, img_name + ".jpg", content_type='image/jpg')
@@ -90,10 +108,13 @@ def cartoonize():
                     # Delete locally stored cartoonized image
                     os.system("rm " + cartoonized_img_name)
                     cartoonized_img_name = generate_signed_url(output_uri)
-                    
 
-                return render_template("index_cartoonized.html", cartoonized_image=cartoonized_img_name)
-
+                # Ensure a return statement is present in all cases
+                return render_template(
+                    "index_cartoonized.html",
+                    uploaded_image=uploaded_img_name,
+                    cartoonized_image=cartoonized_img_name
+                )
             if flask.request.files.get('video'):
                 
                 filename = str(uuid.uuid4()) + ".mp4"
